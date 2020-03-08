@@ -29,7 +29,8 @@ def train_epoch(
     image = image.to(device)
     mask = mask.to(device)
 
-    lr = utils.adjust_learning_rate(
+    # 调整当前学习率
+    utils.adjust_learning_rate(
       optimizer,
       config.LR_STRATEGY,
       epoch,
@@ -44,12 +45,7 @@ def train_epoch(
     out = F.softmax(out, dim=1)
 
     # loss
-    loss, _ = utils.create_loss(
-      out,
-      mask,
-      config.NUM_CLASSES,
-      cal_miou=False
-    )
+    loss = utils.create_loss(out, mask, config.NUM_CLASSES)
 
     total_loss += loss.item()
 
@@ -83,14 +79,13 @@ def test(
   if config.DEVICE.find('cuda') != -1:
     torch.cuda.empty_cache()  # 回收缓存的显存
 
-  result = {
+  iou = {
     "TP": {i: 0 for i in range(8)},
     "TA": {i: 0 for i in range(8)}
   }
 
   total_loss = 0.0
-  mean_iou = 0.0
-  confusion_matrix = None
+
   dataprocess = tqdm(data_loader)
 
   for batch_item in dataprocess:
@@ -102,33 +97,29 @@ def test(
     out = net(image)
     out = F.softmax(out, dim=1)
 
-    loss, iou = utils.create_loss(
-      out, mask, config.NUM_CLASSES, cal_miou=True
-    )
+    loss = utils.create_loss(out, mask, config.NUM_CLASSES)
     total_loss += loss.item()
-    mean_iou += iou.item()
 
     # 计算每个类别的混淆矩阵
-    confusion_matrix = utils.compute_confusion_matrix(out, mask, result)
+    iou = utils.compute_iou(out, mask, iou)
 
     dataprocess.set_description_str("epoch:{}".format(epoch))
     dataprocess.set_postfix_str(
-      "mask_loss:{:.4f}, iou:{:.4f}".format(loss, iou)
+      "mask_loss:{:.4f}".format(loss)
     )
 
-  mean_iou = mean_iou / len(dataprocess)
-  result_file.write("Epoch:{} \n".format(epoch, mean_iou))
+  result_file.write("Epoch:{} \n".format(epoch))
   for i in range(8):
     result_string = "{}: {:.4f} \n".format(
       i,
-      confusion_matrix["TP"][i] / confusion_matrix["TA"][i]
+      iou["TP"][i] / iou["TA"][i]
     )
     print(result_string)
     result_file.write(result_string)
 
   # message
-  info = "Epoch:{}, mean loss is {:.4f} mean_iou:{:.4f} \n".format(
-    epoch, total_loss / len(data_loader), mean_iou
+  info = "Epoch:{}, mean loss is {:.4f} \n".format(
+    epoch, total_loss / len(data_loader)
   )
   result_file.write(info)
   result_file.flush()
@@ -165,7 +156,7 @@ def main():
 
   # data for val
   test_data_loader = dataset.test_data_generator(
-    cfg.DATA_LIST_ROOT, 1, **kwargs
+    cfg.DATA_LIST_ROOT, cfg.VAL_BATCH_SIZE, **kwargs
   )
 
   # 网络

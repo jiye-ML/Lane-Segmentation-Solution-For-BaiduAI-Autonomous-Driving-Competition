@@ -3,8 +3,6 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
-from utils.metric import compute_miou
-
 
 class MyLoss(nn.Module):
 
@@ -160,19 +158,19 @@ class DiceLoss(nn.Module):
     return total_loss / target.shape[1]
 
 
-def make_one_hot(input, num_classes):
+def make_one_hot(x, num_classes):
   """Convert class index tensor to one hot encoding tensor.
   Args:
-       input: A tensor of shape [N, 1, *]
+       x: A tensor of shape [N, 1, *]
        num_classes: An int of number of class
   Returns:
       A tensor of shape [N, num_classes, *]
   """
-  shape = np.array(input.shape)
+  shape = np.array(x.shape)
   shape[1] = num_classes
   shape = tuple(shape)
   result = torch.zeros(shape)
-  result = result.scatter_(1, input.cpu().long(), 1)
+  result = result.scatter_(1, x.cpu().long(), 1)
 
   return result
 
@@ -199,10 +197,5 @@ def create_loss(
 
   loss = bce_loss + dice_loss
 
-  if cal_miou:
-    ious = compute_miou(predicts, labels.reshape((-1, 1)), num_classes)
-    miou = np.nanmean(ious.numpy())
-  else:
-    miou = None
-  return loss, miou
+  return loss
 
