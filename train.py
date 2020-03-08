@@ -1,234 +1,226 @@
 from tqdm import tqdm
 import torch
 import os
-import shutil
-from utils.metric import compute_iou
 import torch.nn.functional as F
-from torchvision import transforms
-from torch.utils.data import DataLoader
 
-from utils.image_process import LaneDataset, ImageAug, DeformAug
-from utils.image_process import ScaleAug, CutOut, ToTensor
-from utils.loss import MySoftmaxCrossEntropyLoss
-from model.deeplabv3plus import DeeplabV3Plus
-from model.unet import ResNetUNet
-from config import Config
+import dataset
+import utils
+from config import ConfigTrain
 
 
-device_list = [0]
-train_net = 'deeplabv3p'
-nets = {'deeplabv3p': DeeplabV3Plus, 'unet': ResNetUNet}
-
-
-def train_epoch(net, epoch, data_loader, optimizer, loss, input_file):
+def train_epoch(
+    net,
+    epoch,
+    data_loader,
+    optimizer,
+    input_file,
+    device,
+    config,
+    epoch_size
+):
 
   net.train()
 
-  total_mask_loss = 0.0
+  total_loss = 0.0
   dataprocess = tqdm(data_loader)
-  for batch_item in dataprocess:
+  for iteration, batch_item in enumerate(dataprocess):
 
     image, mask = batch_item['image'], batch_item['mask']
-    if torch.cuda.is_available():
-      image = image.cuda(device=device_list[0])
-      mask = mask.cuda(device=device_list[0])
+    image = image.to(device)
+    mask = mask.to(device)
+
+    lr = utils.adjust_learning_rate(
+      optimizer,
+      config.LR_STRATEGY,
+      epoch,
+      iteration,
+      epoch_size
+    )
 
     optimizer.zero_grad()
 
     # forward
     out = net(image)
+    out = F.softmax(out, dim=1)
 
     # loss
-    mask_loss = loss(out, mask)
-    total_mask_loss += mask_loss.item()
+    loss, _ = utils.create_loss(
+      out,
+      mask,
+      config.NUM_CLASSES,
+      cal_miou=False
+    )
+
+    total_loss += loss.item()
 
     # 反向传播
-    mask_loss.backward()
+    loss.backward()
 
     # 学习
     optimizer.step()
 
     # 界面显示
     dataprocess.set_description_str("epoch:{}".format(epoch))
-    dataprocess.set_postfix_str("mask_loss:{:.4f}".format(mask_loss.item()))
+    dataprocess.set_postfix_str("loss:{:.4f}".format(loss.item()))
 
   input_file.write(
-    "Epoch:{}, mask loss is {:.4f} \n".format(epoch, total_mask_loss / len(data_loader))
+    "Epoch:{}, loss is {:.4f} \n".format(epoch, total_loss / len(data_loader))
   )
   input_file.flush()
 
 
-def test(net, epoch, data_loader, result_file, loss):
+def test(
+    net,
+    epoch,
+    data_loader,
+    result_file,
+    config,
+    device
+):
 
   net.eval()
+
+  if config.DEVICE.find('cuda') != -1:
+    torch.cuda.empty_cache()  # 回收缓存的显存
 
   result = {
     "TP": {i: 0 for i in range(8)},
     "TA": {i: 0 for i in range(8)}
   }
 
-  total_mask_loss = 0.0
+  total_loss = 0.0
+  mean_iou = 0.0
+  confusion_matrix = None
   dataprocess = tqdm(data_loader)
 
   for batch_item in dataprocess:
 
     image, mask = batch_item['image'], batch_item['mask']
-    if torch.cuda.is_available():
-      image = image.cuda(device=device_list[0])
-      mask = mask.cuda(device=device_list[0])
+    image = image.to(device)
+    mask = mask.to(device)
 
     out = net(image)
+    out = F.softmax(out, dim=1)
 
-    mask_loss = loss(out, mask)
-    total_mask_loss += mask_loss.detach().item()
+    loss, iou = utils.create_loss(
+      out, mask, config.NUM_CLASSES, cal_miou=True
+    )
+    total_loss += loss.item()
+    mean_iou += iou.item()
 
-    pred = torch.argmax(F.softmax(out, dim=1), dim=1)
-    result = compute_iou(pred, mask, result)
+    # 计算每个类别的混淆矩阵
+    confusion_matrix = utils.compute_confusion_matrix(out, mask, result)
 
     dataprocess.set_description_str("epoch:{}".format(epoch))
-    dataprocess.set_postfix_str("mask_loss:{:.4f}".format(mask_loss))
+    dataprocess.set_postfix_str(
+      "mask_loss:{:.4f}, iou:{:.4f}".format(loss, iou)
+    )
 
-  result_file.write("Epoch:{} \n".format(epoch))
+  mean_iou = mean_iou / len(dataprocess)
+  result_file.write("Epoch:{} \n".format(epoch, mean_iou))
   for i in range(8):
-    result_string = "{}: {:.4f} \n".format(i, result["TP"][i] / result["TA"][i])
+    result_string = "{}: {:.4f} \n".format(
+      i,
+      confusion_matrix["TP"][i] / confusion_matrix["TA"][i]
+    )
     print(result_string)
     result_file.write(result_string)
 
   # message
-  info = "Epoch:{}, mask loss is {:.4f} \n".format(
-    epoch, total_mask_loss / len(data_loader)
+  info = "Epoch:{}, mean loss is {:.4f} mean_iou:{:.4f} \n".format(
+    epoch, total_loss / len(data_loader), mean_iou
   )
   result_file.write(info)
   result_file.flush()
 
 
-def adjust_lr(optimizer, epoch):
-  if epoch == 0:
-    lr = 1e-3
-  elif epoch == 2:
-    lr = 1e-2
-  elif epoch == 100:
-    lr = 1e-3
-  elif epoch == 150:
-    lr = 1e-4
-  else:
-    return
-  for param_group in optimizer.param_groups:
-    param_group['lr'] = lr
-
-
 def main():
-  lane_config = Config()
+  cfg = ConfigTrain()
+
+  print('Pick device: ', cfg.DEVICE)
+  device = torch.device(cfg.DEVICE)
 
   # save path
-  if not os.path.exists(lane_config.SAVE_PATH):
-    os.makedirs(lane_config.SAVE_PATH)
+  if not os.path.exists(cfg.LOG_ROOT):
+    os.makedirs(cfg.LOG_ROOT)
 
   # input csv
   train_result_csv_path = open(
-    os.path.join(lane_config.SAVE_PATH, "train.csv"),
+    os.path.join(cfg.LOG_ROOT, "train.csv"),
     'w'
   )
   test_result_csv_path = open(
-    os.path.join(lane_config.SAVE_PATH, "test.csv"),
+    os.path.join(cfg.LOG_ROOT, "test.csv"),
     'w'
   )
 
   kwargs = {}
   if torch.cuda.is_available():
-    kwargs = {'num_workers': 4, 'pin_memory': True}
+    kwargs = {'num_workers': 8, 'pin_memory': True}
 
   # train data
-  train_dataset = LaneDataset(
-    "train.csv",
-    transform=transforms.Compose([
-      ImageAug(),
-      DeformAug(),
-      ScaleAug(),
-      CutOut(32, 0.5),
-      ToTensor()
-    ])
-  )
-  train_data_loader = DataLoader(
-    train_dataset,
-    batch_size=4 * len(device_list),
-    shuffle=True,
-    drop_last=True,
-    **kwargs
+  train_data_loader, train_data_size = dataset.train_data_generator(
+    cfg.DATA_LIST_ROOT, cfg.BATCH_SIZE, **kwargs
   )
 
   # data for val
-  val_dataset = LaneDataset(
-    "val.csv",
-    transform=transforms.Compose([ToTensor()])
-  )
-  val_data_loader = DataLoader(
-    val_dataset,
-    batch_size=2 * len(device_list),
-    shuffle=False,
-    drop_last=False,
-    **kwargs
+  test_data_loader = dataset.test_data_generator(
+    cfg.DATA_LIST_ROOT, 1, **kwargs
   )
 
-  # net
-  net = nets[train_net](lane_config)
-  if torch.cuda.is_available():
-    net = net.cuda(device=device_list[0])
-    net = torch.nn.DataParallel(net, device_ids=device_list)
+  # 网络
+  print('Generating net: ', cfg.NET_NAME)
+  net = utils.create_net(cfg, net_name=cfg.NET_NAME)
 
   # 优化
-  optimizer = torch.optim.Adam(
-    net.parameters(),
-    lr=lane_config.BASE_LR,
-    weight_decay=lane_config.WEIGHT_DECAY
-  )
+  base_optimizer = utils.RAdam(net.parameters(), lr=cfg.BASE_LR)
+  optimizer = utils.Lookahead(base_optimizer)
 
-  # loss
-  loss = MySoftmaxCrossEntropyLoss(lane_config.NUM_CLASSES)
-
-  # resume model
-
+  # 加载与训练模型
   start_epoch = 0
-  if lane_config.RESUME is not None:
-    resume_path = os.path.join(lane_config.SAVE_PATH, lane_config.RESUME)
-    if not os.path.isfile(resume_path):
-      raise RuntimeError(
-        "=> no checkpoint found at '{}'".format(resume_path)
-      )
-    checkpoint = torch.load(resume_path)
-    start_epoch = checkpoint['epoch'] + 1
-    if torch.cuda.is_available():
-      net.module.load_state_dict(checkpoint['state_dict'])
-    else:
-      net.model.load_state_dict(checkpoint['state_dict'])
-      optimizer.load_state_dict(checkpoint['optimizer'])
+  if cfg.PRETRAIN:
+    print('Load pretrain weights: ', cfg.PRETRAINED_WEIGHTS)
+    checkpoint = torch.load(cfg.PRETRAINED_WEIGHTS, map_location='cpu')
+    start_epoch = checkpoint['epoch']
+    net.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+  net.to(device)
+
+  # 一个轮次包含的迭代次数
+  epoch_size = train_data_size / cfg.BATCH_SIZE
 
   # train
-  for epoch in range(start_epoch, lane_config.EPOCHS):
+  for epoch in range(start_epoch, cfg.EPOCH_NUM):
 
-    # adjust_lr(optimizer, epoch)
     train_epoch(
-      net,
-      epoch,
-      train_data_loader,
-      optimizer,
-      loss,
-      train_result_csv_path
+      net=net,
+      epoch=epoch,
+      data_loader=train_data_loader,
+      optimizer=optimizer,
+      input_file=train_result_csv_path,
+      device=device,
+      config=cfg,
+      epoch_size=epoch_size
     )
 
-    # net.module.state_dict()
-    if epoch % 2 == 0:
+    if epoch % 5 == 0:
 
       # test
-      test(net, epoch, val_data_loader, test_result_csv_path, loss)
+      test(net, epoch, test_data_loader, test_result_csv_path, cfg, device)
 
       # save
       _save_path = os.path.join(
-        os.getcwd(),
-        lane_config.SAVE_PATH,
+        cfg.LOG_ROOT,
         "laneNet{}.pth.tar".format(epoch)
       )
-      torch.save({'state_dict': net.state_dict()}, _save_path)
+      torch.save(
+        {
+          'state_dict': net.state_dict(),
+          'epoch': epoch + 1,
+          'optimizer': optimizer.state_dict()
+        },
+        _save_path
+      )
 
   train_result_csv_path.close()
   test_result_csv_path.close()

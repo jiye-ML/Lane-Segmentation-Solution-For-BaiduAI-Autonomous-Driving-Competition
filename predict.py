@@ -5,7 +5,7 @@ import numpy as np
 from model.deeplabv3plus import DeeplabV3Plus
 from model.unet import ResNetUNet
 from config import Config
-from utils.image_process import crop_resize_data
+from dataset.LaneDataset import crop_resize_data
 from utils.process_labels import decode_color_labels
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -29,7 +29,9 @@ def load_model(model_path):
         map_location = 'cpu'
 
     model_param = torch.load(model_path, map_location=map_location)['state_dict']
-    model_param = {k.replace('module.', ''):v for k, v in model_param.items()}
+
+    # 无论cpu，还是GPU 模式都是兼容的
+    model_param = {k.replace('module.', ''): v for k, v in model_param.items()}
     net.load_state_dict(model_param)
     return net
 
@@ -59,10 +61,10 @@ def get_color_mask(pred):
 def main():
     model_dir = 'logs'
     test_dir = 'test_example'
-    model_path = os.path.join(model_dir,  'finalNet.pth.tar')
+    model_path = os.path.join(model_dir,  'laneNet25.pth.tar')
     net = load_model(model_path)
 
-    img_path = os.path.join(test_dir, 'test.jpg')
+    img_path = os.path.join(test_dir, '171206_054337000_Camera_6.jpg')
     img = cv2.imread(img_path)
     img = img_transform(img)
 

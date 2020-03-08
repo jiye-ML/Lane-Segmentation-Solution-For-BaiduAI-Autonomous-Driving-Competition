@@ -3,27 +3,51 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
+from utils.metric import compute_miou
 
-class MySoftmaxCrossEntropyLoss(nn.Module):
+
+class MyLoss(nn.Module):
 
   def __init__(self, nbclasses):
 
-    super(MySoftmaxCrossEntropyLoss, self).__init__()
-
-    self.loss = nn.CrossEntropyLoss(reduction="mean")
-
+    super(MyLoss, self).__init__()
+    self.loss = None
     self.nbclasses = nbclasses
 
-  def forward(self, inputs, target):
 
-    if inputs.dim() > 2:
-      inputs = inputs.view(inputs.size(0), inputs.size(1), -1)  # N,C,H,W => N,C,H*W
-      inputs = inputs.transpose(1, 2)  # N,C,H*W => N,H*W,C
-      inputs = inputs.contiguous().view(-1, self.nbclasses)  # N,H*W,C => N*H*W,C
+class MyCrossEntropyLoss(MyLoss):
 
-    target = target.view(-1).long()
+  def __init__(self, nbclasses):
+    super(MyCrossEntropyLoss, self).__init__(nbclasses)
+    self.loss = nn.CrossEntropyLoss(reduction="mean")
 
-    return self.loss(inputs, target)
+  def forward(self, predicts, labels):
+
+    if predicts.dim() > 2:
+      # permute to (n, h, w, c)
+      predicts = predicts.permute((0, 2, 3, 1))
+      # reshape to (-1, num_classes)  每个像素在每种分类上都有一个概率
+      predicts = predicts.reshape((-1, self.nbclasses))
+
+    labels = labels.flatten()
+
+    return self.loss(predicts, labels)
+
+
+class MyDiceLoss(MyLoss):
+
+  def __init__(self, nbclasses):
+    super(MyDiceLoss, self).__init__(nbclasses)
+    self.loss = DiceLoss()
+
+  def forward(self, predicts, labels):
+
+    labels_one_hot = make_one_hot(labels.reshape((-1, 1)), self.nbclasses)
+
+    # reshape to (-1, num_classes)  每个像素在每种分类上都有一个概率
+    predicts = predicts.reshape((-1, self.nbclasses))
+
+    return self.loss(predicts, labels_one_hot.to(labels.device))
 
 
 class FocalLoss(nn.Module):
@@ -59,23 +83,6 @@ class FocalLoss(nn.Module):
       return loss.mean()
     else:
       return loss.sum()
-
-
-def make_one_hot(input, num_classes):
-  """Convert class index tensor to one hot encoding tensor.
-  Args:
-       input: A tensor of shape [N, 1, *]
-       num_classes: An int of number of class
-  Returns:
-      A tensor of shape [N, num_classes, *]
-  """
-  shape = np.array(input.shape)
-  shape[1] = num_classes
-  shape = tuple(shape)
-  result = torch.zeros(shape)
-  result = result.scatter_(1, input.cpu(), 1)
-
-  return result
 
 
 class BinaryDiceLoss(nn.Module):
@@ -140,7 +147,6 @@ class DiceLoss(nn.Module):
     assert predict.shape == target.shape, 'predict & target shape do not match'
     dice = BinaryDiceLoss(**self.kwargs)
     total_loss = 0
-    predict = F.softmax(predict, dim=1)
 
     for i in range(target.shape[1]):
       if i != self.ignore_index:
@@ -152,3 +158,51 @@ class DiceLoss(nn.Module):
         total_loss += dice_loss
 
     return total_loss / target.shape[1]
+
+
+def make_one_hot(input, num_classes):
+  """Convert class index tensor to one hot encoding tensor.
+  Args:
+       input: A tensor of shape [N, 1, *]
+       num_classes: An int of number of class
+  Returns:
+      A tensor of shape [N, num_classes, *]
+  """
+  shape = np.array(input.shape)
+  shape[1] = num_classes
+  shape = tuple(shape)
+  result = torch.zeros(shape)
+  result = result.scatter_(1, input.cpu().long(), 1)
+
+  return result
+
+
+def create_loss(
+    predicts: torch.Tensor,
+    labels: torch.Tensor,
+    num_classes,
+    cal_miou=True
+):
+  """
+  创建loss
+  @param predicts: shape=(n, c, h, w)
+  @param labels: shape=(n, h, w) or shape=(n, 1, h, w)
+  @param num_classes: int should equal to channels of predicts
+  @param cal_miou:
+  @return: loss, mean_iou
+  """
+  # BCE with DICE
+  bce_loss = MyCrossEntropyLoss(num_classes)(predicts, labels)
+
+  # 将labels做one_hot处理，得到的形状跟predicts相同
+  dice_loss = MyDiceLoss(num_classes)(predicts, labels)
+
+  loss = bce_loss + dice_loss
+
+  if cal_miou:
+    ious = compute_miou(predicts, labels.reshape((-1, 1)), num_classes)
+    miou = np.nanmean(ious.numpy())
+  else:
+    miou = None
+  return loss, miou
+

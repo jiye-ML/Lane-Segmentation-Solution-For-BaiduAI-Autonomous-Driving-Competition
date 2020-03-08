@@ -5,8 +5,8 @@ from sklearn.utils import shuffle
 label_list = []
 image_list = []
 
-image_dir = r'E:\data\lane_detection\Lane-Segmentation-Solution-For-BaiduAI-Autonomous-Driving-Competition\Image_Data'
-label_dir = r'E:\data\lane_detection\Lane-Segmentation-Solution-For-BaiduAI-Autonomous-Driving-Competition\Gray_Label'
+image_dir = r'D:\data\lane_detection_baidu_2019\Image_Data'
+label_dir = r'D:\data\lane_detection_baidu_2019\Gray_Label'
 
 """
    ColorImage/

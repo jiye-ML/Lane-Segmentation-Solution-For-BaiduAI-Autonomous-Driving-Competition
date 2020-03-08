@@ -2,6 +2,8 @@ https://github.com/gujingxiao/Lane-Segmentation-Solution-For-BaiduAI-Autonomous-
 
 https://blog.csdn.net/wangdongwei0/article/details/89093095
 
+### code reference
+* https://github.com/Jinglever/baidu-lane-detection-2019
 
 
 比赛用数据集, 含三个包, 包内各含图像文件(但包内标注文件已失效). 标注数据独立有一个包, 解压后, 标注数据的路径和图像文件可以一一对应. 

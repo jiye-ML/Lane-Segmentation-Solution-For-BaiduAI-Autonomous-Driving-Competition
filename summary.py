@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torchvision import transforms
 from torch.utils.data import DataLoader
-from utils.image_process import LaneDataset, ToTensor
+from dataset.LaneDataset import LaneDataset, ToTensor
 
 
 def adjust_lr(optimizer, epoch):
