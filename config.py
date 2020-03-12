@@ -19,10 +19,14 @@ class ConfigTrain(object):
   DEVICE = 'cuda:0'
 
   # 网络类型
-  NET_NAME = 'unet'
+  NET_NAME = 'deeplabv3p'
 
   # 网络参数
   NUM_CLASSES = 8  # 8个类别
+  OUTPUT_STRIDE = 16
+  ASPP_OUTDIM = 256
+  SHORTCUT_DIM = 48
+  SHORTCUT_KERNEL = 1
   IMAGE_SIZE = (1536, 512)  # 训练的图片的尺寸(h,w)
   HEIGHT_CROP_OFFSET = 690  # 在height方向上将原图裁掉的offset
   BATCH_SIZE = 2  # 数据批次大小
@@ -74,12 +78,11 @@ class ConfigInference(object):
   # 目录
   PROJECT_ROOT = dirname(abspath(__file__))
   DATA_ROOT = '/root/data/test'
-  IMAGE_ROOT = pjoin(DATA_ROOT, 'TestImage')
-  LABEL_ROOT = pjoin(DATA_ROOT, 'TestLabel')
+
   OVERLAY_ROOT = pjoin(DATA_ROOT, 'TestOverlay')
   WEIGHTS_ROOT = pjoin(PROJECT_ROOT, 'weights')
   PRETRAINED_WEIGHTS = pjoin(WEIGHTS_ROOT, '1536x512_b2', 'weights_ep_18_0.007_0.011_0.684.pth')
-  LOG_ROOT = pjoin(PROJECT_ROOT, 'logs')
+  LOG_ROOT = pjoin(PROJECT_ROOT, 'logs_deeplabv3p_res50_ce')
 
   # 设备
   DEVICE = 'cuda:0'
@@ -109,7 +112,7 @@ class ConfigVal(object):
   LABEL_ROOT = pjoin(VAL_ROOT, 'Gray_Label')
   WEIGHTS_ROOT = pjoin(PROJECT_ROOT, 'weights')
   VAL_WEIGHTS = pjoin(WEIGHTS_ROOT, '1536x512_b2', 'weights_ep_18_0.007_0.011_0.684.pth')
-  LOG_ROOT = pjoin(PROJECT_ROOT, 'logs')
+  LOG_ROOT = pjoin(PROJECT_ROOT, 'logs_deeplabv3p_res50_ce')
 
   # 数据量
   VAL_MAX_NUM = 999  # 最多取出多少做训练集

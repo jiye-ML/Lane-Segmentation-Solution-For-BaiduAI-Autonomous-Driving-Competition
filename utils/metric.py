@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 def compute_iou(pred, gt, result):
@@ -7,6 +8,7 @@ def compute_iou(pred, gt, result):
     pred : [N, c, H, W]
     gt: [N, H, W]
     """
+    pred = F.softmax(pred, dim=1)
     pred = torch.argmax(pred, dim=1)
     pred = pred.cpu().numpy()
     gt = gt.cpu().numpy()

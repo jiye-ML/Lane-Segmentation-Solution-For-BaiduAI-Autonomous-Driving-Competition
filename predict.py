@@ -59,9 +59,9 @@ def get_color_mask(pred):
 
 
 def main():
-    model_dir = 'logs'
+    model_dir = 'logs_deeplabv3p_res50_ce'
     test_dir = 'test_example'
-    model_path = os.path.join(model_dir,  'laneNet25.pth.tar')
+    model_path = os.path.join(model_dir,  'laneNet10.pth.tar')
     net = load_model(model_path)
 
     img_path = os.path.join(test_dir, '171206_054337000_Camera_6.jpg')

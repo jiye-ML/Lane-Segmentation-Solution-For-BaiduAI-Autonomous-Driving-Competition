@@ -145,6 +145,7 @@ class DiceLoss(nn.Module):
     assert predict.shape == target.shape, 'predict & target shape do not match'
     dice = BinaryDiceLoss(**self.kwargs)
     total_loss = 0
+    predict = F.softmax(predict, dim=1)
 
     for i in range(target.shape[1]):
       if i != self.ignore_index:
@@ -178,8 +179,7 @@ def make_one_hot(x, num_classes):
 def create_loss(
     predicts: torch.Tensor,
     labels: torch.Tensor,
-    num_classes,
-    cal_miou=True
+    num_classes
 ):
   """
   创建loss

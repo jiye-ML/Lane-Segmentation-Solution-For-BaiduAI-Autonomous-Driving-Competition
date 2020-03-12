@@ -42,7 +42,6 @@ def train_epoch(
 
     # forward
     out = net(image)
-    out = F.softmax(out, dim=1)
 
     # loss
     loss = utils.create_loss(out, mask, config.NUM_CLASSES)
@@ -164,8 +163,9 @@ def main():
   net = utils.create_net(cfg, net_name=cfg.NET_NAME)
 
   # 优化
-  base_optimizer = utils.RAdam(net.parameters(), lr=cfg.BASE_LR)
-  optimizer = utils.Lookahead(base_optimizer)
+  # base_optimizer = utils.RAdam(net.parameters(), lr=cfg.BASE_LR)
+  # optimizer = utils.Lookahead(base_optimizer)
+  optimizer = torch.optim.Adam(net.parameters(), lr=cfg.BASE_LR)
 
   # 加载与训练模型
   start_epoch = 0
