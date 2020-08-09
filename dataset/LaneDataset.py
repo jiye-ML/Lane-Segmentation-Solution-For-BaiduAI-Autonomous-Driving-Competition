@@ -26,9 +26,7 @@ class LaneDataset(Dataset):
   def __getitem__(self, idx):
     ori_image = cv2.imread(self.images[idx])
     ori_mask = cv2.imread(self.labels[idx], cv2.IMREAD_GRAYSCALE)
-    train_img, train_mask = custom_transforms.crop_resize_data(
-      ori_image, ori_mask
-    )
+    train_img, train_mask = custom_transforms.crop_resize_data(ori_image, ori_mask)
 
     # Encode
     train_mask = encode_labels(train_mask)

@@ -21,7 +21,7 @@ def load_model(model_path):
 
     lane_config = Config()
     net = nets[predict_net](lane_config)
-    net.eval()
+    net.eval() 
     if torch.cuda.is_available():
         net = net.cuda(device=device_id)
         map_location = 'cuda:%d' % device_id

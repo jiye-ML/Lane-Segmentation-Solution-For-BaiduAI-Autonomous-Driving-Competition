@@ -176,11 +176,7 @@ def make_one_hot(x, num_classes):
   return result
 
 
-def create_loss(
-    predicts: torch.Tensor,
-    labels: torch.Tensor,
-    num_classes
-):
+def create_loss(predicts, labels, num_classes):
   """
   创建loss
   @param predicts: shape=(n, c, h, w)
